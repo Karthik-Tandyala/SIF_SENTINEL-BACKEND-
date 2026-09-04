@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File 
+from src.sif_nlp_precursor.services.zip_decoder import extract_zip
 
 from sif_nlp_precursor.database.connection import SessionLocal
 from sif_nlp_precursor.database.crud import create_prediction_feedback
@@ -430,4 +431,67 @@ def get_model_info():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to retrieve model information: {e}",
+        ) from e
+@app.post("/api/v1/upload-zip")
+async def upload_zip(file: UploadFile = File(...)):
+    try:
+        if not file.filename:
+            raise HTTPException(
+                status_code=400,
+                detail="No file was provided.",
+            )
+
+        if not file.filename.lower().endswith(".zip"):
+            raise HTTPException(
+                status_code=400,
+                detail="Only ZIP files are accepted.",
+            )
+
+        upload_dir = "data/uploads"
+        zip_path = f"{upload_dir}/{file.filename}"
+        extract_dir = "data/extracted_reports"
+
+        import os
+
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file_data = await file.read()
+
+        if not file_data:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded ZIP file is empty.",
+            )
+
+        with open(zip_path, "wb") as output_file:
+            output_file.write(file_data)
+
+        extracted_files = extract_zip(
+            zip_path=zip_path,
+            output_dir=extract_dir,
+        )
+
+        return {
+            "message": "ZIP uploaded and extracted successfully.",
+            "filename": file.filename,
+            "files_extracted": len(extracted_files),
+            "files": [
+                str(path)
+                for path in extracted_files
+            ],
+        }
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        ) from e
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process ZIP file: {e}",
         ) from e
